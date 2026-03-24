@@ -4,7 +4,8 @@ import fs from "fs";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const pdfParseModule = require("pdf-parse");
-const pdfParse = pdfParseModule.default || pdfParseModule;
+const pdfParseFn = typeof pdfParseModule === "function" ? pdfParseModule : null;
+const PDFParse = pdfParseModule?.PDFParse || pdfParseModule?.default || null;
 import { v4 as uuidv4 } from "uuid";
 import { chunkText } from "../utils/chunker.js";
 import { cosineSimilarity } from "../utils/cosineSimilarity.js";
@@ -44,8 +45,20 @@ const upload = multer({
 async function extractTextFromFile(filePath, fileType) {
   if (fileType === "application/pdf") {
     const dataBuffer = fs.readFileSync(filePath);
-    const data = await pdfParse(dataBuffer);
-    return data.text;
+
+    if (pdfParseFn) {
+      const result = await pdfParseFn(dataBuffer);
+      return result.text;
+    }
+
+    if (PDFParse) {
+      const parser = new PDFParse({ data: dataBuffer });
+      const result = await parser.getText();
+      if (parser.destroy) await parser.destroy();
+      return result.text;
+    }
+
+    throw new Error("pdf-parse module is unavailable or has incompatible API");
   } else if (fileType === "text/plain") {
     return fs.readFileSync(filePath, "utf-8");
   }
