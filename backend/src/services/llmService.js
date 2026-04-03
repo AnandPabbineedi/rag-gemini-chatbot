@@ -1,9 +1,13 @@
 import { GoogleGenAI } from "@google/genai";
 
-export async function generateAnswer(context, question) {
+const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+if (!apiKey) {
+  throw new Error("GEMINI_API_KEY or GOOGLE_API_KEY must be set");
+}
 
+export async function generateAnswer(context, question) {
   const ai = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY
+    apiKey
   });
 
   const prompt = `

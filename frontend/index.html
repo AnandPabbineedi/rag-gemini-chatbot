@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Chatbot - Document Upload</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 RAG Gemini Chatbot</h1>
+            <p class="subtitle">Upload documents and ask questions using AI</p>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="section upload-section">
+            <h2>Upload Documents</h2>
+            <div class="upload-box" id="uploadBox">
+                <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <h3>Drag & Drop Files Here</h3>
+                <p>or click to browse</p>
+                <input type="file" id="fileInput" multiple accept=".pdf,.txt" style="display: none;">
+            </div>
+            <div id="fileList" class="file-list"></div>
+            <button id="uploadBtn" class="btn btn-primary" disabled>Upload Documents</button>
+        </div>
+
+        <!-- Status Section -->
+        <div id="statusSection" class="section" style="display: none;">
+            <div id="statusContent"></div>
+        </div>
+
+        <!-- Chat Section -->
+        <div id="chatSection" class="section" style="display: none;">
+            <h2>Ask Questions</h2>
+            <div class="chat-container">
+                <div id="chatBox" class="chat-box">
+                    <div class="message bot-message">
+                        <p>Hello! I'm ready to answer questions about your uploaded documents. What would you like to know?</p>
+                    </div>
+                </div>
+                <div class="chat-input-container">
+                    <input type="text" id="questionInput" placeholder="Ask a question..." class="question-input">
+                    <button id="askBtn" class="btn btn-primary">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div id="loadingSpinner" class="spinner" style="display: none;">
+        <div class="spinner-content">
+            <div class="spinner-ring"></div>
+            <p>Processing...</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
