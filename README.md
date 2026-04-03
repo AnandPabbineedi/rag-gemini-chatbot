@@ -48,7 +48,10 @@ rag-gemini-chatbot/
 Create a `.env` file in the `backend/` directory:
 
 ```env
+# Either of these keys works:
 GOOGLE_API_KEY=your_google_api_key_here
+# or
+GEMINI_API_KEY=your_google_api_key_here
 ```
 
 ### 2. Installation (Local Development)

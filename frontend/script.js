@@ -27,7 +27,10 @@ fileInput.addEventListener('change', handleFileSelect);
 uploadBtn.addEventListener('click', uploadFiles);
 askBtn.addEventListener('click', askQuestion);
 questionInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') askQuestion();
+   if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        askQuestion();
+    }
 });
 
 // File Handling
@@ -140,16 +143,32 @@ async function uploadFiles() {
     }
 }
 
+let thinkingDiv;
+
+function addThinkingMessage() {
+    thinkingDiv = document.createElement('div');
+    thinkingDiv.className = 'message bot-message';
+    thinkingDiv.innerHTML = `<p>🤖 Thinking...</p>`;
+    chatBox.appendChild(thinkingDiv);
+    chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' });
+}
+
+function removeThinkingMessage() {
+    if (thinkingDiv) thinkingDiv.remove();
+}
+
 // Chat Handler
 async function askQuestion() {
     const question = questionInput.value.trim();
     if (!question) return;
 
-    // Add user message to chat
+    // Add user message
     addMessageToChat(question, 'user');
     questionInput.value = '';
+    askBtn.disabled = true;
 
-    showLoading(true);
+    // Show thinking
+    addThinkingMessage();
 
     try {
         const response = await fetch(`${API_BASE_URL}/ask`, {
@@ -166,20 +185,56 @@ async function askQuestion() {
         }
 
         const data = await response.json();
+
+        removeThinkingMessage(); // 🔥 remove loader
         addMessageToChat(data.answer, 'bot');
+
     } catch (error) {
+        removeThinkingMessage();
         addMessageToChat(`❌ Error: ${error.message}`, 'bot');
     } finally {
-        showLoading(false);
+        askBtn.disabled = false;
+        questionInput.focus();
     }
+}
+
+function typeMarkdown(element, markdown) {
+    const plainText = markdown; // original text
+    // const html = marked.parse(markdown);
+    let i = 0;
+    element.innerHTML = "";
+
+    function type() {
+        if (i < plainText.length) {
+            element.innerHTML += plainText.charAt(i);
+            i++;
+            setTimeout(type, 5);
+        } else {
+            // After typing is done, render markdown
+            setTimeout(() => {
+                element.innerHTML = marked.parse(markdown);
+            }, 200);
+        }
+    }
+    type();
 }
 
 function addMessageToChat(message, sender) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${sender}-message`;
-    messageDiv.innerHTML = `<p>${escapeHtml(message)}</p>`;
+
+    if (sender === 'bot') {
+        typeMarkdown(messageDiv, message); // 🔥 typing effect
+    } else {
+        messageDiv.innerHTML = `<p>${escapeHtml(message)}</p>`;
+    }
+
     chatBox.appendChild(messageDiv);
-    chatBox.scrollTop = chatBox.scrollHeight;
+
+    chatBox.scrollTo({
+        top: chatBox.scrollHeight,
+        behavior: 'smooth'
+    });
 }
 
 function escapeHtml(text) {
