@@ -1,6 +1,6 @@
 // Configuration
 // Use relative path for production (Docker), or full URL for development
-const API_BASE_URL = 'https://rag-backend.onrender.com/api';
+const API_BASE_URL = 'https://rag-backend-cgik.onrender.com/api';
 let selectedFiles = [];
 
 // DOM Elements
