@@ -85,11 +85,14 @@ drop.addEventListener('drop', (e) => handleFiles(e.dataTransfer.files));
 $('clearBtn').addEventListener('click', async () => {
   try { await fetch(`${API_BASE_URL}/session`, { method: 'DELETE', headers: headers() }); } catch {}
   docs = [];
+  chatHistory = [];
   saveDocs();
   renderDocs();
 });
 
 // Chat
+let chatHistory = []; // [{ role, text }] sent with each question for follow-ups
+
 function addMessage(role, html) {
   empty.hidden = true;
   const el = document.createElement('div');
@@ -122,7 +125,7 @@ async function ask(q) {
     const res = await fetch(`${API_BASE_URL}/ask`, {
       method: 'POST',
       headers: headers({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ question: q }),
+      body: JSON.stringify({ question: q, history: chatHistory.slice(-6) }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Something went wrong');
@@ -133,6 +136,7 @@ async function ask(q) {
       data.answer = 'The server restarted and your documents were cleared. Add them again to keep asking.';
     }
     const body = DOMPurify.sanitize(marked.parse(data.answer || "I don't know."));
+    chatHistory.push({ role: 'user', text: q }, { role: 'assistant', text: data.answer || '' });
     pending.className = 'msg bot';
     pending.innerHTML = `<div class="answer">${body}</div>${sourcesHtml(data.sources)}`;
   } catch (err) {

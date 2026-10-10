@@ -215,3 +215,6 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Long URLs or error strings never push the layout sideways */
+.msg p, .answer, .excerpt { overflow-wrap: anywhere; }

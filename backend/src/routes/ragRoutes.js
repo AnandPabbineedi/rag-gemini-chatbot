@@ -146,15 +146,29 @@ router.post("/ask", async (req, res) => {
       });
     }
 
-    const queryEmbedding = await generateEmbedding(question);
+    // Last few turns, trimmed, so follow-up questions have context
+    const history = (Array.isArray(req.body?.history) ? req.body.history : [])
+      .slice(-6)
+      .filter((m) => m && typeof m.text === "string" && (m.role === "user" || m.role === "assistant"))
+      .map((m) => ({ role: m.role, text: m.text.slice(0, 1500) }));
 
-    const topDocs = documents
-      .map((doc) => ({ ...doc, score: cosineSimilarity(queryEmbedding, doc.embedding) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
+    // Search with the previous question too, so "what about X?" still finds the right passages
+    const lastUserTurn = [...history].reverse().find((m) => m.role === "user");
+    const searchText = lastUserTurn ? `${lastUserTurn.text}\n${question}` : question;
+    const queryEmbedding = await generateEmbedding(searchText);
 
-    const context = topDocs.map((doc) => doc.content).join("\n");
-    const answer = await generateAnswer(context, question);
+    const ranked = documents
+      .map((doc, index) => ({ ...doc, index, score: cosineSimilarity(queryEmbedding, doc.embedding) }))
+      .sort((a, b) => b.score - a.score);
+
+    const topDocs = ranked.slice(0, 3);
+    // Small documents fit entirely in the prompt, which gives better whole-document answers
+    const contextDocs = documents.length <= 8
+      ? [...ranked].sort((a, b) => a.index - b.index)
+      : ranked.slice(0, 4);
+
+    const context = contextDocs.map((doc) => `[${doc.fileName}]\n${doc.content}`).join("\n\n");
+    const answer = await generateAnswer(context, question, history);
 
     res.json({
       answer,
