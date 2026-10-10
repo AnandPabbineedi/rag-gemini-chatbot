@@ -72,8 +72,10 @@ async function uploadFile(file) {
   }
 }
 
+// Uploads run one at a time so several large files don't trip the AI rate limit together
+let uploadQueue = Promise.resolve();
 function handleFiles(list) {
-  [...list].forEach(uploadFile);
+  [...list].forEach((file) => { uploadQueue = uploadQueue.then(() => uploadFile(file)); });
   fileInput.value = '';
 }
 

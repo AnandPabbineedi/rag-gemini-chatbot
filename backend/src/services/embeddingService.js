@@ -6,12 +6,15 @@ if (!apiKey) {
   throw new Error("GEMINI_API_KEY or GOOGLE_API_KEY must be set");
 }
 
-const ai = new GoogleGenAI({ apiKey });
+// GEMINI_BASE_URL is only for local testing against a mock server
+const ai = new GoogleGenAI({ apiKey, ...(process.env.GEMINI_BASE_URL && { httpOptions: { baseUrl: process.env.GEMINI_BASE_URL } }) });
 const MODEL = process.env.GEMINI_EMBED_MODEL || "gemini-embedding-001";
 const BATCH_SIZE = 50;
+// 768 dimensions instead of the default 3072: 4x less memory, nearly the same retrieval quality
+const config = { outputDimensionality: 768 };
 export async function generateEmbedding(text) {
   const response = await withRateLimit(() =>
-    ai.models.embedContent({ model: MODEL, contents: text })
+    ai.models.embedContent({ model: MODEL, contents: text, config })
   );
   return response.embeddings[0].values;
 }
@@ -22,7 +25,7 @@ export async function generateEmbeddings(texts) {
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE);
     const response = await withRateLimit(() =>
-      ai.models.embedContent({ model: MODEL, contents: batch })
+      ai.models.embedContent({ model: MODEL, contents: batch, config })
     );
     vectors.push(...response.embeddings.map((e) => e.values));
   }

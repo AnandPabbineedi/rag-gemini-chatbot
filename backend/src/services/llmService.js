@@ -6,7 +6,8 @@ if (!apiKey) {
   throw new Error("GEMINI_API_KEY or GOOGLE_API_KEY must be set");
 }
 
-const ai = new GoogleGenAI({ apiKey });
+// GEMINI_BASE_URL is only for local testing against a mock server
+const ai = new GoogleGenAI({ apiKey, ...(process.env.GEMINI_BASE_URL && { httpOptions: { baseUrl: process.env.GEMINI_BASE_URL } }) });
 
 const SYSTEM_PROMPT = `You answer questions about documents the user has uploaded.
 
