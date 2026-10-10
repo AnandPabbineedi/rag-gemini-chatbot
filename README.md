@@ -1,344 +1,127 @@
-# RAG Gemini Chatbot
+# Ask Your Documents (RAG with Gemini)
 
-A full-stack Retrieval Augmented Generation (RAG) chatbot powered by Google's Gemini AI. Upload documents and get intelligent answers based on their content.
+Upload a PDF or text file and ask questions about it. Answers come only from your document, and every answer shows the passages it was based on.
 
-## Project Structure
+**Live demo:** [rag.anandpabbineedi.site](https://rag.anandpabbineedi.site)
 
-```
-rag-gemini-chatbot/
-├── backend/              # Express.js API server
-│   ├── src/
-│   │   ├── routes/      # API routes
-│   │   ├── services/    # Business logic (embeddings, LLM, vector store)
-│   │   ├── utils/       # Utilities (chunking, similarity)
-│   │   └── server.js    # Express app entry point
-│   ├── Dockerfile
-│   ├── package.json
-│   └── uploads/         # Document storage
-├── frontend/            # Vanilla JS frontend
-│   ├── index.html
-│   ├── styles.css
-│   ├── script.js
-│   ├── nginx.conf
-│   └── Dockerfile
-├── docker-compose.yml
-├── README.md
-└── .gitignore
-```
+![Ask Your Documents answering a question with highlighted source passages](docs/screenshot.png)
+
+> The backend runs on a free server, so the first request can take up to a minute while it wakes up.
 
 ## Features
 
-- 📄 **Document Upload**: Support for PDF and TXT files
-- 🔍 **Smart Chunking**: Automatic text splitting for optimal processing
-- 🧠 **Embeddings**: Generate semantic embeddings using Google's models
-- 🤖 **AI Responses**: Get answers using Google's Gemini model
-- 💬 **Interactive Chat**: Real-time Q&A interface
-- 🐳 **Docker Support**: Easy containerization for both frontend and backend
+- **Answers with sources.** Every answer can expand to show the exact passages it used, highlighted, with the file name and match score.
+- **Follow-up questions.** Ask "what about the second point?" and it understands, because recent conversation turns feed into both retrieval and the prompt.
+- **Private sessions.** Each browser only searches its own documents.
+- **PDF and TXT support** with clear messages for scanned PDFs, password-protected files, empty files, and documents that are too long.
 
-## Prerequisites
+## How it works
 
-- **Docker & Docker Compose** (for containerized deployment)
-- **Node.js 20+** (for local development)
-- **Google API Key** (for Gemini and embedding models)
+Retrieval is built from scratch, without a vector database.
 
-## Setup
+```mermaid
+flowchart TB
+    subgraph Upload
+        U1[PDF or TXT] --> U2[Extract text]
+        U2 --> U3[Split into overlapping chunks at sentence ends]
+        U3 --> U4[Batch embed with Gemini, 50 chunks per request]
+        U4 --> U5[(In-memory vector store, per session)]
+    end
+    subgraph Ask
+        Q1[Question + previous question] --> Q2[Embed]
+        Q2 --> Q3[Rank chunks by cosine similarity]
+        U5 --> Q3
+        Q3 --> Q4[Build context: whole doc if small, else top 4]
+        Q4 --> Q5[Gemini answers with conversation history]
+        Q5 --> Q6[Answer + top 3 source passages]
+    end
+```
 
-### 1. Environment Variables
+1. **Chunking:** text is split into chunks of about 1,500 characters with 200 characters of overlap, breaking at sentence ends where possible so ideas aren't cut mid-sentence.
+2. **Embedding:** chunks are embedded with `gemini-embedding-001` in batches of 50, at 768 dimensions.
+3. **Storage:** vectors are kept as `Float32Array`s in a per-session in-memory store.
+4. **Retrieval:** the question (plus the previous question, for follow-ups) is embedded and compared to every chunk with cosine similarity.
+5. **Generation:** small documents (8 chunks or fewer) go to Gemini whole; larger ones send the top 4 chunks. The top 3 are returned as sources.
 
-Create a `.env` file in the `backend/` directory:
+## Engineering decisions
+
+| Decision | Why |
+|---|---|
+| No vector database | For a few hundred chunks per session, brute-force cosine similarity is fast and has zero infrastructure. At millions of vectors, an approximate index (FAISS, HNSW, pgvector) would be the right call. |
+| Batched embeddings | The first version made one API call per chunk and hit Google's free-tier limit of 100 requests per minute on a single book. Batching cut API calls 50x. |
+| 768-dim `Float32Array` vectors | Default 3,072-dim vectors stored as JS numbers take about 24 KB each. 768-dim Float32 takes 3 KB, an 8x saving that keeps the store well within a 512 MB server. |
+| Per-session isolation | An early version kept one shared store, so any visitor could query anyone's documents. Each browser now sends a session id, and retrieval only searches that session. |
+| Previous question included in retrieval | A follow-up like "I meant the tone" has little meaning alone. Combining it with the last question finds the right passages. |
+| Whole-document context for small files | Questions like "review this letter" need the full text, not just the top matches. |
+| Rate limits, daily caps, origin allowlist | The demo is public and every request costs API quota. |
+
+## Tech stack
+
+- **Frontend:** HTML, CSS, vanilla JavaScript, marked, DOMPurify
+- **Backend:** Node.js, Express 5, Multer, pdf-parse
+- **AI:** Google Gemini via `@google/genai` (embeddings and generation)
+- **Hosting:** Render, custom domain with HTTPS
+
+## API
+
+All `/api` routes require an `x-session-id` header (8 to 64 letters, digits, or hyphens).
+
+| Method | Route | Body | Returns |
+|---|---|---|---|
+| `POST` | `/api/upload` | multipart `file` (PDF or TXT, up to 5 MB, about 40 pages) | `{ fileName, chunksCreated }` |
+| `POST` | `/api/ask` | `{ question, history?: [{ role, text }] }` | `{ answer, sources: [{ fileName, excerpt, score }] }` |
+| `DELETE` | `/api/session` | none | `{ cleared: true }` |
+| `GET` | `/` | none | health check |
+
+Errors return `{ "error": "message" }`.
+
+## Run locally
+
+```bash
+cd backend
+npm install
+```
+
+Create `backend/.env`:
 
 ```env
-# Either of these keys works:
-GOOGLE_API_KEY=your_google_api_key_here
-# or
-GEMINI_API_KEY=your_google_api_key_here
+GEMINI_API_KEY=your_key_from_google_ai_studio
+GEMINI_MODEL=gemini-3.8-flash
 ```
-
-### 2. Installation (Local Development)
 
 ```bash
-# Install backend dependencies
-cd backend
-npm install
-
-# Install frontend (if using a framework)
-cd ../frontend
-npm install  # (if applicable)
-```
-
-## Running the Application
-
-### Option 1: Docker Compose (Recommended)
-
-```bash
-# Build and start both services
-docker compose up --build
-
-# Services will be available at:
-# - Frontend: http://localhost:80
-# - Backend API: http://localhost:3000/api
-```
-
-### Option 2: Local Development
-
-```bash
-# Terminal 1: Start the backend
-cd backend
-npm install
-node src/server.js
-
-# Terminal 2: Serve the frontend
-cd frontend
-# Use any static server (e.g., Python's http.server)
-python -m http.server 8000
-# Or use `http-server` npm package: npx http-server
-```
-
-Access the application at:
-- Frontend: `http://localhost:8000`
-- Backend API: `http://localhost:3000/api`
-
-## API Endpoints
-
-### Upload Document
-
-**POST** `/api/upload`
-
-Upload a PDF or TXT file for processing.
-
-```bash
-curl -X POST -F "file=@document.pdf" http://localhost:3000/api/upload
-```
-
-Response:
-```json
-{
-  "message": "Document processed successfully",
-  "fileName": "document.pdf",
-  "chunksCreated": 25
-}
-```
-
-### Ask Question
-
-**POST** `/api/ask`
-
-Ask a question based on uploaded documents.
-
-```bash
-curl -X POST -H "Content-Type: application/json" \
-  -d '{"question": "What is the main topic?"}' \
-  http://localhost:3000/api/ask
-```
-
-Response:
-```json
-{
-  "answer": "Based on the documents, the main topic is..."
-}
-```
-
-## Technologies
-
-- **Backend**: Node.js, Express.js, Multer
-- **Frontend**: Vanilla JavaScript, HTML, CSS
-- **AI**: Google Gemini API, Google embeddings
-- **Storage**: In-memory vector store (can be extended to use pinecone, weaviate, etc.)
-- **Deployment**: Docker, Docker Compose
-- **Web Server**: Nginx (frontend), Express (backend)
-
-## Architecture
-
-```
-┌─────────────┐
-│  Frontend   │ (Nginx)
-│ (port 80)   │
-└──────┬──────┘
-       │ /api/*
-       ▼
-┌─────────────────┐
-│    Backend      │ (Express.js)
-│  (port 3000)    │
-└────────┬────────┘
-         │
-    ┌────┴────┬─────────┬──────────┐
-    ▼         ▼         ▼          ▼
-┌────────┐ ┌────────┐ ┌────────┐ ┌──────────┐
-│ Google │ │ Google │ │ Vector │ │ Document │
-│Gemini  │ │Embed   │ │ Store  │ │  Store   │
-└────────┘ └────────┘ └────────┘ └──────────┘
-```
-
-## How It Works
-
-1. **Upload**: User uploads a document (PDF/TXT)
-2. **Process**: Backend extracts text and chunks it
-3. **Embed**: Generate semantic embeddings for each chunk
-4. **Index**: Store embeddings in vector store
-5. **Query**: User asks a question
-6. **Retrieve**: Find most relevant document chunks using similarity search
-7. **Generate**: Ask Gemini to answer based on retrieved context
-8. **Respond**: Return answer to user via frontend
-
-## Development
-
-### Backend Development
-
-```bash
-cd backend
-npm install
 node src/server.js
 ```
 
-### Frontend Development
-
-The frontend is currently vanilla JavaScript. To modify:
-1. Edit `frontend/index.html` for structure
-2. Edit `frontend/styles.css` for styling
-3. Edit `frontend/script.js` for functionality
-
-### Adding Features
-
-- **New API endpoints**: Add routes in `backend/src/routes/ragRoutes.js`
-- **Custom services**: Create files in `backend/src/services/`
-- **UI improvements**: Modify frontend HTML/CSS/JS files
-
-## Troubleshooting
-
-### Port Already in Use
+For the frontend, set `API_BASE_URL` in `frontend/script.js` to `http://localhost:3000/api`, then serve the folder on port 5500, which the backend allows by default:
 
 ```bash
-# Windows
-netstat -ano | findstr :3000
-taskkill /PID <PID> /F
-
-# Linux/Mac
-lsof -i :3000
-kill <PID>
+npx serve -l 5500 frontend
 ```
 
-### Docker Build Fails
+Open http://localhost:5500.
 
-```bash
-# Clean build
-docker compose down -v
-docker compose build --no-cache
-docker compose up
-```
+## Configuration
 
-### API Connection Errors
+| Variable | Default | Purpose |
+|---|---|---|
+| `GEMINI_API_KEY` | (required) | Google AI Studio API key |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Model for answers |
+| `GEMINI_EMBED_MODEL` | `gemini-embedding-001` | Model for embeddings |
+| `ALLOWED_ORIGINS` | (none) | Extra browser origins, comma-separated |
+| `UPLOADS_PER_HOUR` | `10` | Uploads per visitor per hour |
+| `QUESTIONS_PER_HOUR` | `30` | Questions per visitor per hour |
+| `DAILY_UPLOADS` | `100` | Total uploads per day |
+| `DAILY_QUESTIONS` | `300` | Total questions per day |
+| `PORT` | `3000` | Server port |
 
-Ensure:
-- Backend is running on port 3000
-- Frontend is correctly configured with `API_BASE_URL`
-- CORS is enabled on backend
+## Limitations and next steps
 
-## Next Steps
+- Documents live in memory and are cleared when the server restarts or a session is idle for 6 hours.
+- Search is brute force, which is O(n) per question. Fine at this scale; the next step would be pgvector or an HNSW index with persistent storage.
+- Scanned PDFs have no text layer. Adding OCR would cover them.
+- Possible additions: streaming answers, inline citations that link to the exact passage, and user accounts for persistent libraries.
 
-- [ ] Add vector database integration (Pinecone, Weaviate, Milvus)
-- [ ] Implement user authentication
-- [ ] Add conversation history
-- [ ] Support more file formats
-- [ ] Implement caching strategies
-- [ ] Add rate limiting
-- [ ] Deploy to cloud (AWS, GCP, Azure)
+## Author
 
-## License
-
-ISC
-
-## Support
-
-For issues or questions:
-1. Check the troubleshooting section
-2. Review API response errors
-3. Check backend logs: `docker compose logs rag-app`
-4. Check frontend console: Browser DevTools > Console
-
-### Upload Document
-
-**Endpoint**: `POST /api/upload`
-
-Upload a PDF or TXT file to process and store embeddings.
-
-**Request**:
-
-- Method: `POST`
-- Content-Type: `multipart/form-data`
-- Body: Form data with file field
-
-**Response**:
-
-```json
-{
-  "message": "Document processed successfully",
-  "fileName": "document.pdf",
-  "chunksCreated": 5
-}
-```
-
-### Ask Question
-
-**Endpoint**: `POST /api/ask`
-
-Ask a question about the uploaded documents.
-
-**Request**:
-
-```json
-{
-  "question": "What is the main topic of the document?"
-}
-```
-
-**Response**:
-
-```json
-{
-  "answer": "The document discusses..."
-}
-```
-
-## Usage Examples
-
-### Using cURL
-
-Upload a file:
-
-```bash
-curl -F "file=@document.pdf" http://localhost:5000/api/upload
-```
-
-Ask a question:
-
-```bash
-curl -X POST http://localhost:5000/api/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question":"What is the main topic?"}'
-```
-
-### Using JavaScript/fetch
-
-See `examples/client.js` for a complete example.
-
-## Supported File Types
-
-- **PDF** (.pdf) - Documents are parsed and text is extracted
-- **Plain Text** (.txt) - Text files are read directly
-
-## Architecture
-
-- **server.js**: Express server setup with CORS
-- **ragRoutes.js**: API route handlers with file upload and query processing
-- **embeddingService.js**: Generates vector embeddings using Google's API
-- **llmService.js**: Generates answers using Google Gemini API
-- **vectorStore.js**: In-memory storage for documents and embeddings
-- **chunker.js**: Splits text into overlapping chunks
-- **cosineSimilarity.js**: Calculates similarity between embeddings
-
-## Notes
-
-- Uploaded files are automatically deleted after processing
-- Documents are stored in-memory, so they will be lost if the server restarts
-- Maximum file size depends on multer configuration
-- Default chunk size is 800 characters with 100 character overlap
+Built by [Anand Pabbineedi](https://anandpabbineedi.site). [LinkedIn](https://www.linkedin.com/in/anand-pabbineedi-6b3b93257/)
