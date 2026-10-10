@@ -1,7 +1,17 @@
-export function chunkText(text, chunkSize = 800, overlap = 100) {
+// Splits text into overlapping chunks, preferring to break at sentence ends
+export function chunkText(text, chunkSize = 1500, overlap = 200) {
+  const clean = text.replace(/\s+/g, " ").trim();
   const chunks = [];
-  for (let i = 0; i < text.length; i += chunkSize - overlap) {
-    chunks.push(text.slice(i, i + chunkSize));
+  let start = 0;
+  while (start < clean.length) {
+    let end = Math.min(start + chunkSize, clean.length);
+    if (end < clean.length) {
+      const lastStop = clean.lastIndexOf(". ", end);
+      if (lastStop > start + chunkSize * 0.6) end = lastStop + 1;
+    }
+    chunks.push(clean.slice(start, end).trim());
+    if (end >= clean.length) break;
+    start = end - overlap;
   }
-  return chunks;
+  return chunks.filter(Boolean);
 }

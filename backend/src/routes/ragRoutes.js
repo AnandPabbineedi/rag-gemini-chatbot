@@ -9,7 +9,10 @@ const PDFParse = pdfParseModule?.PDFParse || pdfParseModule?.default || null;
 import { v4 as uuidv4 } from "uuid";
 import { chunkText } from "../utils/chunker.js";
 import { cosineSimilarity } from "../utils/cosineSimilarity.js";
-import { generateEmbedding } from "../services/embeddingService.js";
+import { generateEmbedding, generateEmbeddings } from "../services/embeddingService.js";
+
+// Keeps uploads within the free Gemini quota (about 40 pages of text)
+const MAX_CHUNKS_PER_UPLOAD = 80;
 import { generateAnswer } from "../services/llmService.js";
 import { addDocument, getDocuments, clearSession } from "../services/vectorStore.js";
 
@@ -92,11 +95,19 @@ router.post("/upload", upload.single("file"), async (req, res) => {
     // Chunk the text and create embeddings
     const chunks = chunkText(text);
 
-    const sessionId = getSessionId(req);
-    for (const chunk of chunks) {
-      const embedding = await generateEmbedding(chunk);
-      addDocument(sessionId, uuidv4(), embedding, chunk, fileName);
+    if (chunks.length > MAX_CHUNKS_PER_UPLOAD) {
+      fs.unlinkSync(filePath);
+      const pages = Math.round(text.length / 3000);
+      return res.status(400).json({
+        error: `Too long for this demo (about ${pages} pages). Upload up to about 40 pages, like a single chapter.`,
+      });
     }
+
+    const sessionId = getSessionId(req);
+    const embeddings = await generateEmbeddings(chunks);
+    chunks.forEach((chunk, i) => {
+      addDocument(sessionId, uuidv4(), embeddings[i], chunk, fileName);
+    });
 
     // Clean up the uploaded file
     fs.unlinkSync(filePath);
@@ -113,7 +124,10 @@ router.post("/upload", upload.single("file"), async (req, res) => {
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-    res.status(500).json({ error: error.message });
+    const status = error.status === 429 ? 429 : 500;
+    res.status(status).json({
+      error: status === 429 ? error.message : "Couldn't process this file. Try a different PDF or TXT.",
+    });
   }
 });
 
@@ -152,7 +166,10 @@ router.post("/ask", async (req, res) => {
     });
   } catch (error) {
     console.error("Ask error:", error);
-    res.status(500).json({ error: "Couldn't answer that right now. Try again in a moment." });
+    const status = error.status === 429 ? 429 : 500;
+    res.status(status).json({
+      error: status === 429 ? error.message : "Couldn't answer that right now. Try again in a moment.",
+    });
   }
 });
 
