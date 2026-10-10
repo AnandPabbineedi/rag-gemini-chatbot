@@ -11,7 +11,7 @@ import { chunkText } from "../utils/chunker.js";
 import { cosineSimilarity } from "../utils/cosineSimilarity.js";
 import { generateEmbedding } from "../services/embeddingService.js";
 import { generateAnswer } from "../services/llmService.js";
-import { addDocument, getAllDocuments } from "../services/vectorStore.js";
+import { addDocument, getDocuments, clearSession } from "../services/vectorStore.js";
 
 const router = express.Router();
 
@@ -29,8 +29,14 @@ const storage = multer.diskStorage({
   }
 });
 
+const getSessionId = (req) => {
+  const id = String(req.get("x-session-id") || "").slice(0, 64);
+  return /^[a-zA-Z0-9-]{8,64}$/.test(id) ? id : "public";
+};
+
 const upload = multer({
   storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
   fileFilter: (req, file, cb) => {
     const allowedMimes = ["application/pdf", "text/plain"];
     if (allowedMimes.includes(file.mimetype)) {
@@ -86,9 +92,10 @@ router.post("/upload", upload.single("file"), async (req, res) => {
     // Chunk the text and create embeddings
     const chunks = chunkText(text);
 
+    const sessionId = getSessionId(req);
     for (const chunk of chunks) {
       const embedding = await generateEmbedding(chunk);
-      addDocument(uuidv4(), embedding, chunk);
+      addDocument(sessionId, uuidv4(), embedding, chunk, fileName);
     }
 
     // Clean up the uploaded file
@@ -111,28 +118,47 @@ router.post("/upload", upload.single("file"), async (req, res) => {
 });
 
 router.post("/ask", async (req, res) => {
-  const { question } = req.body;
+  try {
+    const question = String(req.body?.question || "").trim();
+    if (!question) {
+      return res.status(400).json({ error: "Question is required" });
+    }
 
-  const queryEmbedding = await generateEmbedding(question);
+    const documents = getDocuments(getSessionId(req));
+    if (documents.length === 0) {
+      return res.json({
+        answer: "Upload a document first, then ask me about it.",
+        sources: [],
+      });
+    }
 
-  const documents = getAllDocuments();
+    const queryEmbedding = await generateEmbedding(question);
 
-  const scoredDocs = documents.map(doc => ({
-    ...doc,
-    score: cosineSimilarity(queryEmbedding, doc.embedding)
-  }));
+    const topDocs = documents
+      .map((doc) => ({ ...doc, score: cosineSimilarity(queryEmbedding, doc.embedding) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
 
-  const topDocs = scoredDocs
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
+    const context = topDocs.map((doc) => doc.content).join("\n");
+    const answer = await generateAnswer(context, question);
 
-  const context = topDocs.map(doc => doc.content).join("\n");
+    res.json({
+      answer,
+      sources: topDocs.map((d) => ({
+        fileName: d.fileName,
+        excerpt: d.content.trim().slice(0, 280),
+        score: Math.round(d.score * 100) / 100,
+      })),
+    });
+  } catch (error) {
+    console.error("Ask error:", error);
+    res.status(500).json({ error: "Couldn't answer that right now. Try again in a moment." });
+  }
+});
 
-  const answer = await generateAnswer(context, question);
-
-  res.json({ answer });
-
-  console.log("Top scores:", topDocs.map(d => d.score));
+router.delete("/session", (req, res) => {
+  clearSession(getSessionId(req));
+  res.json({ cleared: true });
 });
 
 export default router;

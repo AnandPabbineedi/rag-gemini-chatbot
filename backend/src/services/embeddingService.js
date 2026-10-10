@@ -11,7 +11,7 @@ export async function generateEmbedding(text) {
   });
 
   const response = await ai.models.embedContent({
-    model: "gemini-embedding-001",
+    model: process.env.GEMINI_EMBED_MODEL || "gemini-embedding-001",
     contents: text,
   });
 
