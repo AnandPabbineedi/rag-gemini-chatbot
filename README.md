@@ -53,6 +53,7 @@ flowchart TB
 | Per-session isolation | An early version kept one shared store, so any visitor could query anyone's documents. Each browser now sends a session id, and retrieval only searches that session. |
 | Previous question included in retrieval | A follow-up like "I meant the tone" has little meaning alone. Combining it with the last question finds the right passages. |
 | Whole-document context for small files | Questions like "review this letter" need the full text, not just the top matches. |
+| Dynamic least-token model fallback | Automatically discovers active Gemini models and prioritizes lowest token-consuming models (`gemini-3.5-flash-lite`, `gemini-flash-lite-latest`, `gemini-2.5-flash`, etc.). If a model experiences high demand spikes (HTTP 503) or rate limits (HTTP 429), it seamlessly falls back to the next least-token model before showing an error. |
 | Rate limits, daily caps, origin allowlist | The demo is public and every request costs API quota. |
 
 ## Tech stack
@@ -106,7 +107,7 @@ Open http://localhost:5500.
 | Variable | Default | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | (required) | Google AI Studio API key |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Model for answers |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Preferred answer model (dynamically falls back to least-token models on 503/429) |
 | `GEMINI_EMBED_MODEL` | `gemini-embedding-001` | Model for embeddings |
 | `ALLOWED_ORIGINS` | (none) | Extra browser origins, comma-separated |
 | `UPLOADS_PER_HOUR` | `10` | Uploads per visitor per hour |

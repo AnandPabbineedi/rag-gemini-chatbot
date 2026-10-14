@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Rounded Background Badge in Royal Scholar Blue (#2B49B8) -->
+  <rect width="64" height="64" rx="16" fill="#2B49B8"/>
+  
+  <!-- Document Sheet in Sheet White (#FFFFFF) -->
+  <path d="M18 12 C18 10.8954 18.8954 10 20 10 H37 L48 21 V50 C48 51.1046 47.1046 52 46 52 H20 C18.8954 52 18 51.1046 18 50 V12 Z" fill="#FFFFFF" stroke="#1A2233" stroke-width="1.5" stroke-linejoin="round"/>
+  
+  <!-- Folded Corner -->
+  <path d="M37 10 V19 C37 20.1046 37.8954 21 39 21 H48" fill="#F1F3F6" stroke="#1A2233" stroke-width="1.5" stroke-linejoin="round"/>
+
+  <!-- Document Text Lines -->
+  <!-- Top Line -->
+  <line x1="24" y1="24" x2="33" y2="24" stroke="#9AA3B4" stroke-width="2.5" stroke-linecap="round"/>
+  
+  <!-- Highlighted Passage matching RAG app's --mark (#FFE46B) -->
+  <rect x="22.5" y="29" width="22" height="7" rx="2" fill="#FFE46B"/>
+  <line x1="24" y1="32.5" x2="42.5" y2="32.5" stroke="#1A2233" stroke-width="2.5" stroke-linecap="round"/>
+  
+  <!-- Lower Lines -->
+  <line x1="24" y1="41" x2="36" y2="41" stroke="#9AA3B4" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="24" y1="47" x2="31" y2="47" stroke="#9AA3B4" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- AI Query / Knowledge Sparkle Badge -->
+  <circle cx="47.5" cy="46.5" r="7.5" fill="#FFE46B" stroke="#1A2233" stroke-width="1.5"/>
+  <path d="M47.5 41.5 L48.8 45.2 L52.5 46.5 L48.8 47.8 L47.5 51.5 L46.2 47.8 L42.5 46.5 L46.2 45.2 Z" fill="#1A2233"/>
+</svg>

@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { withRateLimit } from "../utils/rateLimit.js";
+import { generateContentWithDynamicFallback } from "./modelManager.js";
 
 const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 if (!apiKey) {
@@ -34,12 +34,12 @@ ${conversation ? `\nConversation so far:\n${conversation}\n` : ""}
 User: ${question}
 Assistant:`;
 
-  const response = await withRateLimit(() =>
-    ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-      contents: prompt,
-    })
-  );
+  const { text } = await generateContentWithDynamicFallback({
+    ai,
+    apiKey,
+    prompt,
+    preferredModel: process.env.GEMINI_MODEL || "gemini-3.5-flash-lite",
+  });
 
-  return response.text;
+  return text;
 }

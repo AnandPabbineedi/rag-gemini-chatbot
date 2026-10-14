@@ -161,11 +161,17 @@ router.post("/ask", requireSession, askLimits, async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("Ask error:", error?.message);
-    const status = error.status === 429 ? 429 : 500;
-    res.status(status).json({
-      error: status === 429 ? error.message : "Couldn't answer that right now. Try again in a moment.",
-    });
+    console.error("Ask error:", error?.message || error);
+    const msg = String(error?.message || "");
+    const isBusy = error?.status === 503 || msg.includes("503") || msg.includes("high demand") || msg.includes("UNAVAILABLE");
+    const isRateLimit = error?.status === 429 || msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED");
+    const status = isRateLimit ? 429 : isBusy ? 503 : 500;
+    const userMessage = isRateLimit
+      ? (error?.message && !error.message.startsWith("{") ? error.message : "Today's free AI quota is currently used up. Please try again later.")
+      : isBusy
+      ? "The AI service is currently experiencing high demand across all models. Please try again in a few moments."
+      : "Couldn't answer that right now. Try again in a moment.";
+    res.status(status).json({ error: userMessage });
   }
 });
 

@@ -3,6 +3,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import ragRoutes from "./routes/ragRoutes.js";
 
+import { getAvailableLeastModels } from "./services/modelManager.js";
+
 dotenv.config();
 
 const app = express();
@@ -21,7 +23,15 @@ const allowedOrigins = [
 app.use(cors({ origin: (origin, cb) => cb(null, !origin || allowedOrigins.includes(origin)) }));
 app.use(express.json({ limit: "100kb" }));
 
-app.get("/", (req, res) => res.json({ status: "ok" }));
+app.get("/", async (req, res) => {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const available = await getAvailableLeastModels(apiKey);
+  res.json({
+    status: "ok",
+    preferredModel: process.env.GEMINI_MODEL || "gemini-3.5-flash-lite",
+    availableFallbackModels: available,
+  });
+});
 app.use("/api", ragRoutes);
 
 // Turn upload errors (wrong type, too large) into readable JSON
