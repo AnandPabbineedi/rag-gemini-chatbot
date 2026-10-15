@@ -1,128 +1,167 @@
 # Ask Your Documents (RAG with Gemini)
 
-Upload a PDF or text file and ask questions about it. Answers come only from your document, and every answer shows the passages it was based on.
+Upload a PDF or text file and ask questions about it. Answers come directly from your document, and every answer cites the source passages it was grounded in.
 
 **Live demo:** [rag.anandpabbineedi.site](https://rag.anandpabbineedi.site)
 
 ![Ask Your Documents answering a question with highlighted source passages](docs/screenshot.png)
 
-> The backend runs on a free server, so the first request can take up to a minute while it wakes up.
+> The backend runs on a free cloud instance, so the initial cold-start request can take up to a minute while it wakes up.
 
 ## Features
 
-- **Answers with sources.** Every answer can expand to show the exact passages it used, highlighted, with the file name and match score.
-- **Follow-up questions.** Ask "what about the second point?" and it understands, because recent conversation turns feed into both retrieval and the prompt.
-- **Private sessions.** Each browser only searches its own documents.
-- **PDF and TXT support** with clear messages for scanned PDFs, password-protected files, empty files, and documents that are too long.
+- **Answers with source citations:** Every answer expands to show exact passages retrieved from the document, highlighted with file name and cosine similarity score.
+- **Context-aware follow-up queries:** Maintains recent conversational turns in both vector retrieval query construction and LLM context synthesis.
+- **Session-isolated storage:** Per-session vector isolation ensures multi-tenant privacy.
+- **Robust document parsing:** PDF and TXT support powered by `pypdf`, with error handling for encrypted/password-protected files, empty files, scanned files, and oversized documents.
+- **Resilient model fallback:** Proactive dynamic least-token model fallback against Google GenAI 503 capacity spikes and 429 quota limits.
 
-## How it works
+## Architecture & How It Works
 
-Retrieval is built from scratch, without a vector database.
+Retrieval is engineered in Python with FastAPI and vectorized NumPy:
 
 ```mermaid
 flowchart TB
-    subgraph Upload
-        U1[PDF or TXT] --> U2[Extract text]
-        U2 --> U3[Split into overlapping chunks at sentence ends]
-        U3 --> U4[Batch embed with Gemini, 50 chunks per request]
-        U4 --> U5[(In-memory vector store, per session)]
+    subgraph Upload ["Document Ingestion & Chunking"]
+        U1[PDF or TXT Document] --> U2[Text Extraction via pypdf]
+        U2 --> U3[Sentence-Boundary Chunking with Overlap]
+        U3 --> U4[Batched Embeddings via google-genai]
+        U4 --> U5[(Session NumPy Vector Store - Float32)]
     end
-    subgraph Ask
-        Q1[Question + previous question] --> Q2[Embed]
-        Q2 --> Q3[Rank chunks by cosine similarity]
+    subgraph Ask ["Retrieval-Augmented Generation"]
+        Q1[Query + Conversational History] --> Q2[Embed Query Vector]
+        Q2 --> Q3[BLAS Matrix-Vector Dot Product Cosine Ranking]
         U5 --> Q3
-        Q3 --> Q4[Build context: whole doc if small, else top 4]
-        Q4 --> Q5[Gemini answers with conversation history]
-        Q5 --> Q6[Answer + top 3 source passages]
+        Q3 --> Q4[Top-K Passage Selection & Context Assembly]
+        Q4 --> Q5[Gemini Dynamic Least-Token Synthesis]
+        Q5 --> Q6[Grounded Answer + Ranked Source Passages]
     end
 ```
 
-1. **Chunking:** text is split into chunks of about 1,500 characters with 200 characters of overlap, breaking at sentence ends where possible so ideas aren't cut mid-sentence.
-2. **Embedding:** chunks are embedded with `gemini-embedding-001` in batches of 50, at 768 dimensions.
-3. **Storage:** vectors are kept as `Float32Array`s in a per-session in-memory store.
-4. **Retrieval:** the question (plus the previous question, for follow-ups) is embedded and compared to every chunk with cosine similarity.
-5. **Generation:** small documents (8 chunks or fewer) go to Gemini whole; larger ones send the top 4 chunks. The top 3 are returned as sources.
+1. **Sentence-Aware Chunking:** Text is split into ~1,500-character windows with 200-character overlap, strictly respecting punctuation boundaries (`.`, `!`, `?`, `\n`) to preserve semantic coherence.
+2. **Batched Embeddings:** Document chunks are embedded in batches of 50 via `text-embedding-004` (or `gemini-embedding-001`) at 768 dimensions using the official `google-genai` SDK.
+3. **Pre-Normalized Vector Store:** Embeddings are cast to IEEE-754 `float32` and normalized to unit length ($L_2$ norm) upon ingestion.
+4. **Vectorized Retrieval:** The query (and prior conversational turn) is embedded, normalized, and compared against session documents using an ultra-fast NumPy matrix-vector dot product ($S = M \cdot q$).
+5. **Generation & Fallback:** Small documents ($\le 8$ chunks) feed full context; larger documents supply top-4 chunks. Synthesized through dynamic least-token model fallback (`gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`).
 
-## Engineering decisions
+## Engineering Decisions
 
-| Decision | Why |
+| Decision | Rationale |
 |---|---|
-| No vector database | For a few hundred chunks per session, brute-force cosine similarity is fast and has zero infrastructure. At millions of vectors, an approximate index (FAISS, HNSW, pgvector) would be the right call. |
-| Batched embeddings | The first version made one API call per chunk and hit Google's free-tier limit of 100 requests per minute on a single book. Batching cut API calls 50x. |
-| 768-dim `Float32Array` vectors | Default 3,072-dim vectors stored as JS numbers take about 24 KB each. 768-dim Float32 takes 3 KB, an 8x saving that keeps the store well within a 512 MB server. |
-| Per-session isolation | An early version kept one shared store, so any visitor could query anyone's documents. Each browser now sends a session id, and retrieval only searches that session. |
-| Previous question included in retrieval | A follow-up like "I meant the tone" has little meaning alone. Combining it with the last question finds the right passages. |
-| Whole-document context for small files | Questions like "review this letter" need the full text, not just the top matches. |
-| Dynamic least-token model fallback | Automatically discovers active Gemini models and prioritizes lowest token-consuming models (`gemini-3.5-flash-lite`, `gemini-flash-lite-latest`, `gemini-2.5-flash`, etc.). If a model experiences high demand spikes (HTTP 503) or rate limits (HTTP 429), it seamlessly falls back to the next least-token model before showing an error. |
-| Rate limits, daily caps, origin allowlist | The demo is public and every request costs API quota. |
+| **FastAPI + Pydantic v2** | High-throughput asynchronous ASGI backend with compile-time-speed request validation, OpenAPI schema generation, and strict type safety. |
+| **Vectorized NumPy (No external vector DB)** | For hundreds of document chunks per session, an external vector DB introduces unnecessary network hops and infrastructure overhead. NumPy pre-normalized matrix dot products execute in sub-millisecond BLAS routines. |
+| **Pre-Normalized $L_2$ Unit Vectors** | By normalizing vectors during insertion ($\mathbf{v} / \|\mathbf{v}\|_2$), cosine similarity simplifies from $\frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|\|\mathbf{v}\|}$ to a single dot product $\mathbf{u} \cdot \mathbf{v}$, avoiding repeated square-root calculations at query time. |
+| **Batched Embeddings** | Sequential chunk embedding exhaust API rate limits quickly. Batching into 50 chunks per API call reduces network overhead by 50x and stays well within rate quotas. |
+| **Dynamic Least-Token Fallback** | Production LLM APIs face capacity spikes (HTTP 503) and quota caps (HTTP 429). The backend automatically ranks discovered models by token footprint and gracefully cascades through fallback candidates before failing. |
+| **Sliding-Window Rate Limiting** | In-memory sliding-window limiters guard against abuse on public endpoints (per-session and global daily thresholds). |
 
-## Tech stack
+## Tech Stack
 
-- **Frontend:** HTML, CSS, vanilla JavaScript, marked, DOMPurify
-- **Backend:** Node.js, Express 5, Multer, pdf-parse
-- **AI:** Google Gemini via `@google/genai` (embeddings and generation)
-- **Hosting:** Render, custom domain with HTTPS
+- **Backend:** Python 3.12+, FastAPI, Uvicorn, Pydantic v2, Pydantic-Settings
+- **Data & Parsing:** NumPy, `pypdf`, `python-multipart`
+- **AI / LLM:** Google GenAI SDK (`google-genai`)
+- **Testing:** Pytest, HTTPX / Starlette TestClient
+- **Frontend:** HTML5, Modern CSS, Vanilla JavaScript, Marked.js, DOMPurify
+- **DevOps:** Docker, Docker Compose, Render PaaS
 
-## API
+## API Reference
 
-All `/api` routes require an `x-session-id` header (8 to 64 letters, digits, or hyphens).
+All `/api/*` endpoints require the `X-Session-ID` header (8 to 64 alphanumeric characters or hyphens).
 
-| Method | Route | Body | Returns |
+| Method | Endpoint | Request Payload | Response |
 |---|---|---|---|
-| `POST` | `/api/upload` | multipart `file` (PDF or TXT, up to 5 MB, about 40 pages) | `{ fileName, chunksCreated }` |
-| `POST` | `/api/ask` | `{ question, history?: [{ role, text }] }` | `{ answer, sources: [{ fileName, excerpt, score }] }` |
-| `DELETE` | `/api/session` | none | `{ cleared: true }` |
-| `GET` | `/` | none | health check |
+| `POST` | `/api/upload` | Multipart `file` (PDF/TXT, max 5 MB) | `{"fileName": str, "chunksCreated": int}` |
+| `POST` | `/api/ask` | `{"question": str, "history": [{"role": str, "text": str}]}` | `{"answer": str, "sources": [{"fileName": str, "excerpt": str, "score": float}], "_modelUsed": str}` |
+| `DELETE` | `/api/session` | None | `{"cleared": true}` |
+| `GET` | `/` | None | Health check `{"status": "ok", "service": "rag-gemini-chatbot"}` |
 
-Errors return `{ "error": "message" }`.
+## Run Locally
 
-## Run locally
+### Prerequisites
+- Python 3.11+
+- Google Gemini API key ([Google AI Studio](https://aistudio.google.com/))
+
+### 1. Backend Setup
 
 ```bash
 cd backend
-npm install
+
+# Create virtual environment
+python -m venv .venv
+
+# Activate environment
+# On Linux/macOS:
+source .venv/bin/activate
+# On Windows:
+.venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-Create `backend/.env`:
+Create `backend/.env` (or copy `backend/.env.example`):
 
 ```env
-GEMINI_API_KEY=your_key_from_google_ai_studio
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_EMBED_MODEL=text-embedding-004
+ALLOWED_ORIGINS=http://localhost:5500,http://127.0.0.1:5500
 ```
 
+Start the FastAPI application:
+
 ```bash
-node src/server.js
+uvicorn app.main:app --host 0.0.0.0 --port 3000 --reload
 ```
 
-For the frontend, set `API_BASE_URL` in `frontend/script.js` to `http://localhost:3000/api`, then serve the folder on port 5500, which the backend allows by default:
+Run test suite:
 
 ```bash
+pytest -v
+```
+
+### 2. Frontend Setup
+
+Set `API_BASE_URL` in `frontend/script.js` to `http://localhost:3000/api`, then serve the frontend folder:
+
+```bash
+# Using python built-in server or npx serve
 npx serve -l 5500 frontend
+# or
+python -m http.server 5500 --directory frontend
 ```
 
-Open http://localhost:5500.
+Navigate to `http://localhost:5500`.
+
+### 3. Running with Docker Compose
+
+```bash
+docker compose up --build
+```
 
 ## Configuration
 
-| Variable | Default | Purpose |
+| Environment Variable | Default | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | (required) | Google AI Studio API key |
-| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Preferred answer model (dynamically falls back to least-token models on 503/429) |
-| `GEMINI_EMBED_MODEL` | `gemini-embedding-001` | Model for embeddings |
-| `ALLOWED_ORIGINS` | (none) | Extra browser origins, comma-separated |
-| `UPLOADS_PER_HOUR` | `10` | Uploads per visitor per hour |
-| `QUESTIONS_PER_HOUR` | `30` | Questions per visitor per hour |
-| `DAILY_UPLOADS` | `100` | Total uploads per day |
-| `DAILY_QUESTIONS` | `300` | Total questions per day |
-| `PORT` | `3000` | Server port |
+| `GEMINI_API_KEY` | *(Required)* | Google AI Studio API key |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Preferred answer generation model |
+| `GEMINI_EMBED_MODEL` | `text-embedding-004` | Embedding model for semantic search |
+| `ALLOWED_ORIGINS` | `http://localhost:5500` | CORS permitted origins |
+| `UPLOADS_PER_HOUR` | `10` | Max document uploads per session/hour |
+| `QUESTIONS_PER_HOUR` | `30` | Max queries per session/hour |
+| `DAILY_UPLOADS` | `100` | Global daily upload cap |
+| `DAILY_QUESTIONS` | `300` | Global daily question cap |
+| `PORT` | `3000` | Service port |
 
-## Limitations and next steps
+## Testing
 
-- Documents live in memory and are cleared when the server restarts or a session is idle for 6 hours.
-- Search is brute force, which is O(n) per question. Fine at this scale; the next step would be pgvector or an HNSW index with persistent storage.
-- Scanned PDFs have no text layer. Adding OCR would cover them.
-- Possible additions: streaming answers, inline citations that link to the exact passage, and user accounts for persistent libraries.
+The project includes integration tests covering document ingestion, mock vectorized retrieval, session clearing, and input validation:
+
+```bash
+cd backend
+pytest -v
+```
 
 ## Author
 
-Built by [Anand Pabbineedi](https://anandpabbineedi.site). [LinkedIn](https://www.linkedin.com/in/anand-pabbineedi-6b3b93257/)
+Built by [Anand Pabbineedi](https://anandpabbineedi.site) • [LinkedIn](https://www.linkedin.com/in/anand-pabbineedi-6b3b93257/)

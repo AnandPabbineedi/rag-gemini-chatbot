@@ -1,23 +1,18 @@
-# Use official Node image
-FROM node:20-alpine
+FROM python:3.12-slim
 
-# Set working directory
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=3000
+
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-
 # Install dependencies
-RUN npm install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all files
-COPY . .
+# Copy application code
+COPY app ./app
 
-# Create uploads folder
-RUN mkdir -p uploads
-
-# Expose port
 EXPOSE 3000
 
-# Start server
-CMD ["node", "src/server.js"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-3000}"]

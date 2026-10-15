@@ -1,3 +1,11 @@
 .env
-uploads
+uploads/
 bigdoc.json
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+node_modules/
