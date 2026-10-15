@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://rag-backend-cgik.onrender.com/api';
+const API_BASE_URL = 'https://rag-gemini-chatbot-python-backend.onrender.com/api';
 const MAX_SIZE = 5 * 1024 * 1024;
 
 // A per-browser session id keeps each visitor's documents separate
