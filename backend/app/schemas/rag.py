@@ -1,14 +1,21 @@
 """Pydantic schemas for document upload, vector search, and QA."""
 
 from typing import List, Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MessageTurn(BaseModel):
     """A single turn in the conversation history."""
 
     role: Literal["user", "assistant"]
-    text: str = Field(max_length=1500, description="Message text truncated to 1500 chars")
+    text: str = Field(description="Message text, safely truncated to preserve context window")
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def truncate_text(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v[:3000]
+        return str(v)
 
 
 class AskRequest(BaseModel):
@@ -16,6 +23,13 @@ class AskRequest(BaseModel):
 
     question: str = Field(min_length=1, max_length=1000, description="Question text")
     history: List[MessageTurn] = Field(default_factory=list, description="Prior conversation context")
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def trim_question(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip()
+        return str(v)
 
 
 class SourceItem(BaseModel):

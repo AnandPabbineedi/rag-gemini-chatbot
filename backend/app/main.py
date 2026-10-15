@@ -60,9 +60,14 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Returns readable error message on schema validation failure."""
+    logger.warning("Validation error on %s: %s", request.url.path, exc.errors())
+    errors = exc.errors()
+    msg = errors[0].get("msg") if errors else "Invalid request parameters."
+    field = ".".join(str(loc) for loc in errors[0].get("loc", [])) if errors else ""
+    detail = f"Invalid request: {field} - {msg}" if field else f"Invalid request: {msg}"
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
-        content={"error": "Invalid request parameters."},
+        content={"error": detail},
     )
 
 
